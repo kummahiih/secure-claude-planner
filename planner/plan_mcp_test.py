@@ -31,11 +31,13 @@ async def test_current_success(mock_get):
     mock_get.return_value.json.return_value = {
         "plan_id": "plan-001",
         "plan_goal": "Test",
-        "task": {"id": "t1", "name": "First"},
+        "task": {"id": "t1", "name": "First", "files": ["a.py"],
+                 "action": "do", "verify": "check", "done": "done"},
     }
     result = await _dispatch("plan_current", {})
     data = json.loads(result)
     assert data["task"]["id"] == "t1"
+    assert data["plan_id"] == "plan-001"
 
 
 @pytest.mark.asyncio
@@ -56,6 +58,14 @@ async def test_current_server_error(mock_get):
         await _dispatch("plan_current", {})
 
 
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.get")
+async def test_current_connection_failure(mock_get):
+    mock_get.side_effect = Exception("Connection refused")
+    with pytest.raises(Exception, match="Connection refused"):
+        await _dispatch("plan_current", {})
+
+
 # --- plan_list ---
 
 
@@ -66,11 +76,15 @@ async def test_list_success(mock_get):
     mock_get.return_value.json.return_value = {
         "plan_id": "plan-001",
         "plan_goal": "Test",
-        "tasks": [{"id": "t1", "name": "First", "status": "current"}],
+        "tasks": [
+            {"id": "t1", "name": "First", "status": "completed"},
+            {"id": "t2", "name": "Second", "status": "current"},
+        ],
     }
     result = await _dispatch("plan_list", {})
     data = json.loads(result)
-    assert len(data["tasks"]) == 1
+    assert len(data["tasks"]) == 2
+    assert data["tasks"][1]["status"] == "current"
 
 
 @pytest.mark.asyncio
@@ -82,6 +96,15 @@ async def test_list_no_plan(mock_get):
     assert "no active plan" in data["message"].lower()
 
 
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.get")
+async def test_list_server_error(mock_get):
+    mock_get.return_value.status_code = 500
+    mock_get.return_value.text = "boom"
+    with pytest.raises(RuntimeError, match="500"):
+        await _dispatch("plan_list", {})
+
+
 # --- plan_complete ---
 
 
@@ -91,7 +114,8 @@ async def test_complete_success(mock_post):
     mock_post.return_value.status_code = 200
     mock_post.return_value.json.return_value = {
         "completed": "t1",
-        "next": {"id": "t2", "name": "Second"},
+        "next": {"id": "t2", "name": "Second", "files": ["b.py"],
+                 "action": "do", "verify": "check", "done": "done"},
     }
     result = await _dispatch("plan_complete", {"task_id": "t1"})
     data = json.loads(result)
@@ -103,7 +127,7 @@ async def test_complete_success(mock_post):
 @patch("plan_mcp.requests.post")
 async def test_complete_wrong_id(mock_post):
     mock_post.return_value.status_code = 400
-    mock_post.return_value.json.return_value = {"detail": "Task ID mismatch"}
+    mock_post.return_value.json.return_value = {"detail": "Task ID mismatch: current is t2, got wrong"}
     with pytest.raises(ValueError, match="mismatch"):
         await _dispatch("plan_complete", {"task_id": "wrong"})
 
@@ -114,6 +138,29 @@ async def test_complete_no_plan(mock_post):
     mock_post.return_value.status_code = 404
     with pytest.raises(FileNotFoundError):
         await _dispatch("plan_complete", {"task_id": "t1"})
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_complete_server_error(mock_post):
+    mock_post.return_value.status_code = 500
+    mock_post.return_value.text = "crash"
+    with pytest.raises(RuntimeError, match="500"):
+        await _dispatch("plan_complete", {"task_id": "t1"})
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_complete_all_done(mock_post):
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "completed": "t3",
+        "message": "All tasks completed",
+    }
+    result = await _dispatch("plan_complete", {"task_id": "t3"})
+    data = json.loads(result)
+    assert data["completed"] == "t3"
+    assert "completed" in data["message"].lower()
 
 
 # --- plan_block ---
@@ -130,6 +177,7 @@ async def test_block_success(mock_post):
     result = await _dispatch("plan_block", {"task_id": "t1", "reason": "Need decision"})
     data = json.loads(result)
     assert data["blocked"] == "t1"
+    assert data["reason"] == "Need decision"
 
 
 @pytest.mark.asyncio
@@ -141,6 +189,14 @@ async def test_block_wrong_id(mock_post):
         await _dispatch("plan_block", {"task_id": "wrong", "reason": "x"})
 
 
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_block_no_plan(mock_post):
+    mock_post.return_value.status_code = 404
+    with pytest.raises(FileNotFoundError):
+        await _dispatch("plan_block", {"task_id": "t1", "reason": "x"})
+
+
 # --- plan_create ---
 
 
@@ -149,7 +205,8 @@ async def test_block_wrong_id(mock_post):
 async def test_create_success(mock_post):
     mock_post.return_value.status_code = 201
     mock_post.return_value.json.return_value = {
-        "plan_id": "plan-001",
+        "plan_id": "plan-20260317-120000",
+        "filename": "plan-2026-03-17-ab1cd.json",
         "tasks_created": 2,
         "current_task": "t1",
     }
@@ -165,6 +222,7 @@ async def test_create_success(mock_post):
     )
     data = json.loads(result)
     assert data["tasks_created"] == 2
+    assert data["current_task"] == "t1"
 
 
 @pytest.mark.asyncio
@@ -174,6 +232,15 @@ async def test_create_empty_tasks(mock_post):
     mock_post.return_value.json.return_value = {"detail": "Plan must have at least one task"}
     with pytest.raises(ValueError, match="at least one"):
         await _dispatch("plan_create", {"goal": "Empty", "tasks": []})
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_create_server_error(mock_post):
+    mock_post.return_value.status_code = 500
+    mock_post.return_value.text = "crash"
+    with pytest.raises(RuntimeError, match="500"):
+        await _dispatch("plan_create", {"goal": "X", "tasks": [{"name": "T", "files": [], "action": "x", "verify": "x", "done": "x"}]})
 
 
 # --- plan_update_task ---
@@ -190,6 +257,7 @@ async def test_update_success(mock_patch):
     )
     data = json.loads(result)
     assert data["updated"] == "t1"
+    assert data["field"] == "action"
 
 
 @pytest.mark.asyncio
@@ -204,6 +272,30 @@ async def test_update_bad_field(mock_patch):
         )
 
 
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.patch")
+async def test_update_unknown_task(mock_patch):
+    mock_patch.return_value.status_code = 404
+    mock_patch.return_value.json.return_value = {"detail": "Task t99 not found"}
+    with pytest.raises(ValueError, match="t99"):
+        await _dispatch(
+            "plan_update_task",
+            {"task_id": "t99", "field": "name", "value": "x"},
+        )
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.patch")
+async def test_update_server_error(mock_patch):
+    mock_patch.return_value.status_code = 500
+    mock_patch.return_value.text = "crash"
+    with pytest.raises(RuntimeError, match="500"):
+        await _dispatch(
+            "plan_update_task",
+            {"task_id": "t1", "field": "name", "value": "x"},
+        )
+
+
 # --- Unknown tool ---
 
 
@@ -213,7 +305,7 @@ async def test_unknown_tool():
         await _dispatch("nonexistent_tool", {})
 
 
-# --- call_tool wrapper ---
+# --- call_tool wrapper: success returns isError=False ---
 
 
 @pytest.mark.asyncio
@@ -225,11 +317,15 @@ async def test_call_tool_success(mock_get):
     }
     result = await call_tool("plan_current", {})
     assert result.isError is False
+    assert len(result.content) > 0
+
+
+# --- call_tool wrapper: error returns isError=True ---
 
 
 @pytest.mark.asyncio
 @patch("plan_mcp.requests.get")
-async def test_call_tool_error(mock_get):
+async def test_call_tool_server_error(mock_get):
     mock_get.return_value.status_code = 500
     mock_get.return_value.text = "boom"
     result = await call_tool("plan_current", {})
@@ -244,13 +340,20 @@ async def test_call_tool_unknown():
     assert "Unknown tool" in result.content[0].text
 
 
-# --- Connection failure ---
-
-
 @pytest.mark.asyncio
 @patch("plan_mcp.requests.get")
-async def test_connection_failure(mock_get):
+async def test_call_tool_connection_failure(mock_get):
     mock_get.side_effect = Exception("Connection refused")
     result = await call_tool("plan_current", {})
     assert result.isError is True
     assert "Connection refused" in result.content[0].text
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_call_tool_complete_error(mock_post):
+    mock_post.return_value.status_code = 400
+    mock_post.return_value.json.return_value = {"detail": "Task ID mismatch"}
+    result = await call_tool("plan_complete", {"task_id": "wrong"})
+    assert result.isError is True
+    assert "mismatch" in result.content[0].text

@@ -95,9 +95,9 @@ def sample_plan(clean_plans_dir):
 
 
 class TestAuth:
-    def test_missing_auth_returns_403(self, client):
+    def test_missing_auth_returns_401(self, client):
         r = client.get("/current")
-        assert r.status_code == 403
+        assert r.status_code == 401
 
     def test_wrong_token_returns_401(self, client):
         r = client.get("/current", headers=BAD_AUTH)
@@ -106,6 +106,7 @@ class TestAuth:
     def test_correct_token_passes(self, client, sample_plan):
         r = client.get("/current", headers=AUTH)
         assert r.status_code == 200
+    
 
 
 # --- GET /health ---

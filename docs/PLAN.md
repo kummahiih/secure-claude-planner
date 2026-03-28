@@ -28,10 +28,10 @@ For overall project phases and risk register, see
 - [ ] Limit task count range enforcement (2–10 tasks)
 - [ ] Validate task field completeness (files, action, verify, done all required)
 
-### Separate authentication
+### ~~Separate authentication~~ — Done (2026-03-28)
 
-- [ ] Introduce PLAN_API_TOKEN distinct from MCP_API_TOKEN
-- [ ] Update plan_mcp.py wrapper in agent repo to use the new token
+- [X] Introduce PLAN_API_TOKEN distinct from MCP_API_TOKEN
+- [X] Update plan_mcp.py wrapper in agent repo to use the new token
 
 ### Observability
 

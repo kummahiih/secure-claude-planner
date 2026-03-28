@@ -41,7 +41,7 @@ automatically advances the next `pending` task to `current`.
 
 ### Plan file naming
 
-`plan-YYYY-MM-DD-<5-char-hmac>.json` — HMAC derived from plan ID and MCP_API_TOKEN.
+`plan-YYYY-MM-DD-<5-char-hmac>.json` — HMAC derived from plan ID and PLAN_API_TOKEN.
 
 ---
 
@@ -54,7 +54,7 @@ The plan-server is deliberately limited in what it can access:
 | /plans | Read/write (plan state files) |
 | /workspace | **No access** |
 | /gitdir | **No access** |
-| Secrets (API keys) | **No access** (only MCP_API_TOKEN for auth) |
+| Secrets (API keys) | **No access** (only PLAN_API_TOKEN for auth) |
 
 Plans are infrastructure artifacts stored in the parent repo's `plans/` directory,
 not agent-modifiable code.
@@ -66,5 +66,7 @@ reach workspace, gitdir, or API credentials.
 
 ### Authentication
 
-All REST endpoints require `Authorization: Bearer <MCP_API_TOKEN>`. A separate
-`PLAN_API_TOKEN` is planned as a future improvement.
+All REST endpoints require `Authorization: Bearer <PLAN_API_TOKEN>`. This token
+is distinct from `MCP_API_TOKEN` (used by mcp-server) and `TESTER_API_TOKEN`
+(used by tester-server) — each backend has its own scoped token (see RR-4,
+resolved 2026-03-28).

@@ -30,8 +30,8 @@ logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(messag
 logger = logging.getLogger("plan_mcp")
 
 PLAN_SERVER_URL = os.environ.get("PLAN_SERVER_URL", "https://plan-server:8443")
-MCP_API_TOKEN = os.environ.get("MCP_API_TOKEN", "")
-HEADERS = {"Authorization": f"Bearer {MCP_API_TOKEN}"}
+PLAN_API_TOKEN = os.environ.get("PLAN_API_TOKEN", "")
+HEADERS = {"Authorization": f"Bearer {PLAN_API_TOKEN}"}
 VERIFY = "/app/certs/ca.crt"
 
 server = Server("planner")

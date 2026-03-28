@@ -37,10 +37,10 @@ logger = logging.getLogger("plan_server")
 # --- Configuration ---
 
 PLANS_DIR = os.environ.get("PLANS_DIR", "/plans")
-MCP_API_TOKEN = os.environ.get("MCP_API_TOKEN", "")
+PLAN_API_TOKEN = os.environ.get("PLAN_API_TOKEN", "") or os.environ.get("MCP_API_TOKEN", "")
 
-if not MCP_API_TOKEN:
-    logger.error("MCP_API_TOKEN not set — refusing to start")
+if not PLAN_API_TOKEN:
+    logger.error("PLAN_API_TOKEN not set — refusing to start")
     sys.exit(1)
 
 
@@ -51,7 +51,7 @@ security = HTTPBearer()
 
 
 def verify_token(credentials: HTTPAuthorizationCredentials = Depends(security)):
-    if not secrets.compare_digest(credentials.credentials, MCP_API_TOKEN):
+    if not secrets.compare_digest(credentials.credentials, PLAN_API_TOKEN):
         logger.warning("Failed authentication attempt")
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
@@ -100,7 +100,7 @@ UPDATABLE_FIELDS = {"name", "files", "action", "verify", "done"}
 def _plan_filename(plan_id: str) -> str:
     """Generate filename: plan-YYYY-MM-DD-<hex>.json"""
     tag = hmac.new(
-        MCP_API_TOKEN.encode(), plan_id.encode(), hashlib.sha256
+        PLAN_API_TOKEN.encode(), plan_id.encode(), hashlib.sha256
     ).hexdigest()[:5]
     date_str = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     return f"plan-{date_str}-{tag}.json"
@@ -347,13 +347,13 @@ def verify_isolation():
     violations = []
 
     # Forbidden env vars
-    for var in ["ANTHROPIC_API_KEY", "CLAUDE_API_TOKEN", "DYNAMIC_AGENT_KEY"]:
+    for var in ["ANTHROPIC_API_KEY", "CLAUDE_API_TOKEN", "DYNAMIC_AGENT_KEY", "MCP_API_TOKEN"]:
         if var in os.environ:
             violations.append(f"FORBIDDEN env var present: {var}")
 
     # Required env vars
-    if "MCP_API_TOKEN" not in os.environ:
-        violations.append("REQUIRED env var missing: MCP_API_TOKEN")
+    if "PLAN_API_TOKEN" not in os.environ:
+        violations.append("REQUIRED env var missing: PLAN_API_TOKEN")
 
     # Plans dir must exist
     if not os.path.isdir(PLANS_DIR):

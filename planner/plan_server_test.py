@@ -12,7 +12,7 @@ from pathlib import Path
 from unittest.mock import patch
 
 # Inject required env vars before importing
-os.environ["MCP_API_TOKEN"] = "test-plan-token"
+os.environ["PLAN_API_TOKEN"] = "test-plan-token"
 os.environ["PLANS_DIR"] = "/tmp/test-plans"
 
 sys.path.append(os.path.dirname(os.path.abspath(__file__)))
@@ -518,7 +518,7 @@ class TestIsolation:
 
     def test_rejects_missing_mcp_token(self):
         from plan_server import verify_isolation
-        env = {k: v for k, v in os.environ.items() if k != "MCP_API_TOKEN"}
+        env = {k: v for k, v in os.environ.items() if k != "PLAN_API_TOKEN"}
         with patch.dict(os.environ, env, clear=True):
             with pytest.raises(SystemExit):
                 verify_isolation()

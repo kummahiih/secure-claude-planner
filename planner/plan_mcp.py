@@ -84,8 +84,26 @@ async def list_tools() -> list[types.Tool]:
                         "type": "string",
                         "description": "Why the task is blocked",
                     },
+                    "context": {
+                        "type": "string",
+                        "description": "Summary of work already done — used to resume if unblocked",
+                    },
                 },
                 "required": ["task_id", "reason"],
+            },
+        ),
+        types.Tool(
+            name="plan_unblock",
+            description="Unblock a blocked task and resume execution. Returns the task with its block reason and resume context.",
+            inputSchema={
+                "type": "object",
+                "properties": {
+                    "task_id": {
+                        "type": "string",
+                        "description": "ID of the blocked task to unblock",
+                    },
+                },
+                "required": ["task_id"],
             },
         ),
         types.Tool(
@@ -198,9 +216,27 @@ async def _dispatch(name: str, arguments: dict) -> str:
             raise RuntimeError(f"HTTP {response.status_code}: {response.text}")
 
     elif name == "plan_block":
+        body = {"task_id": arguments["task_id"], "reason": arguments["reason"]}
+        if "context" in arguments:
+            body["context"] = arguments["context"]
         response = requests.post(
             f"{PLAN_SERVER_URL}/block",
-            json={"task_id": arguments["task_id"], "reason": arguments["reason"]},
+            json=body,
+            headers=HEADERS, verify=VERIFY, timeout=10,
+        )
+        if response.status_code == 200:
+            return json.dumps(response.json(), indent=2)
+        elif response.status_code == 400:
+            raise ValueError(response.json().get("detail", "Bad request"))
+        elif response.status_code == 404:
+            raise FileNotFoundError("No active plan found")
+        else:
+            raise RuntimeError(f"HTTP {response.status_code}: {response.text}")
+
+    elif name == "plan_unblock":
+        response = requests.post(
+            f"{PLAN_SERVER_URL}/unblock",
+            json={"task_id": arguments["task_id"]},
             headers=HEADERS, verify=VERIFY, timeout=10,
         )
         if response.status_code == 200:

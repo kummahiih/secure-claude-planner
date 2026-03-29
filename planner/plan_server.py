@@ -216,8 +216,9 @@ async def complete_task(req: CompleteRequest, token: str = Depends(verify_token)
             detail=f"Task ID mismatch: current is {current['id']}, got {req.task_id}",
         )
 
-    # Mark completed
+    # Mark completed and clear resume context
     current["status"] = "completed"
+    current.pop("resume_context", None)
 
     # Advance next pending → current
     next_task = None

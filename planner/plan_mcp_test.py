@@ -197,6 +197,85 @@ async def test_block_no_plan(mock_post):
         await _dispatch("plan_block", {"task_id": "t1", "reason": "x"})
 
 
+# --- plan_block with context ---
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_block_with_context(mock_post):
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "blocked": "t1",
+        "reason": "Need decision",
+    }
+    result = await _dispatch(
+        "plan_block",
+        {"task_id": "t1", "reason": "Need decision", "context": "Wrote 50% of the code"},
+    )
+    data = json.loads(result)
+    assert data["blocked"] == "t1"
+    # Verify context was passed in the request body
+    call_kwargs = mock_post.call_args
+    assert call_kwargs.kwargs["json"]["context"] == "Wrote 50% of the code"
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_block_without_context_omits_key(mock_post):
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {"blocked": "t1", "reason": "x"}
+    await _dispatch("plan_block", {"task_id": "t1", "reason": "x"})
+    call_kwargs = mock_post.call_args
+    assert "context" not in call_kwargs.kwargs["json"]
+
+
+# --- plan_unblock ---
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_unblock_success(mock_post):
+    mock_post.return_value.status_code = 200
+    mock_post.return_value.json.return_value = {
+        "unblocked": "t2",
+        "task": {"id": "t2", "name": "Fix it", "files": ["b.py"],
+                 "action": "do", "verify": "check", "done": "done"},
+        "blockers": ["Need decision"],
+        "resume_context": "Wrote 50% of the code",
+    }
+    result = await _dispatch("plan_unblock", {"task_id": "t2"})
+    data = json.loads(result)
+    assert data["unblocked"] == "t2"
+    assert data["resume_context"] == "Wrote 50% of the code"
+    assert data["blockers"] == ["Need decision"]
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_unblock_not_blocked(mock_post):
+    mock_post.return_value.status_code = 400
+    mock_post.return_value.json.return_value = {"detail": "Task t2 is not blocked (status: current)"}
+    with pytest.raises(ValueError, match="not blocked"):
+        await _dispatch("plan_unblock", {"task_id": "t2"})
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_unblock_task_not_found(mock_post):
+    mock_post.return_value.status_code = 404
+    with pytest.raises(FileNotFoundError):
+        await _dispatch("plan_unblock", {"task_id": "t99"})
+
+
+@pytest.mark.asyncio
+@patch("plan_mcp.requests.post")
+async def test_unblock_server_error(mock_post):
+    mock_post.return_value.status_code = 500
+    mock_post.return_value.text = "crash"
+    with pytest.raises(RuntimeError, match="500"):
+        await _dispatch("plan_unblock", {"task_id": "t2"})
+
+
 # --- plan_create ---
 
 

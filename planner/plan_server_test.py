@@ -307,6 +307,93 @@ class TestBlock:
         assert r.status_code == 404
 
 
+# --- POST /unblock ---
+
+
+class TestUnblock:
+    def _blocked_plan(self):
+        plan = _sample_plan()
+        plan["tasks"][1]["status"] = "blocked"
+        plan["tasks"][1]["blockers"] = ["Needs design decision"]
+        plan["tasks"][1]["resume_context"] = "Wrote 50% of the code"
+        return plan
+
+    def test_unblocks_blocked_task(self, client, clean_plans_dir):
+        _write_plan(clean_plans_dir, self._blocked_plan())
+        r = client.post("/unblock", json={"task_id": "t2"}, headers=AUTH)
+        assert r.status_code == 200
+        data = r.json()
+        assert data["unblocked"] == "t2"
+        assert data["task"]["id"] == "t2"
+        assert data["blockers"] == ["Needs design decision"]
+        assert data["resume_context"] == "Wrote 50% of the code"
+
+    def test_unblocked_task_status_is_current(self, client, clean_plans_dir):
+        path = _write_plan(clean_plans_dir, self._blocked_plan())
+        client.post("/unblock", json={"task_id": "t2"}, headers=AUTH)
+        plan = json.loads(path.read_text())
+        assert plan["tasks"][1]["status"] == "current"
+
+    def test_rejects_if_current_task_exists(self, client, sample_plan):
+        # sample_plan already has t2 as current
+        plan = json.loads(sample_plan.read_text())
+        plan["tasks"][2]["status"] = "blocked"
+        plan["tasks"][2]["blockers"] = ["blocked"]
+        sample_plan.write_text(json.dumps(plan, indent=2))
+        r = client.post("/unblock", json={"task_id": "t3"}, headers=AUTH)
+        assert r.status_code == 400
+        assert "already current" in r.json()["detail"].lower()
+
+    def test_unknown_task_returns_404(self, client, clean_plans_dir):
+        _write_plan(clean_plans_dir, self._blocked_plan())
+        r = client.post("/unblock", json={"task_id": "t99"}, headers=AUTH)
+        assert r.status_code == 404
+
+    def test_non_blocked_task_returns_400(self, client, clean_plans_dir):
+        plan = _sample_plan()
+        # Make no current task, but t1 is completed (not blocked)
+        plan["tasks"][1]["status"] = "pending"
+        _write_plan(clean_plans_dir, plan)
+        r = client.post("/unblock", json={"task_id": "t1"}, headers=AUTH)
+        assert r.status_code == 400
+        assert "not blocked" in r.json()["detail"].lower()
+
+    def test_no_plan_returns_404(self, client, clean_plans_dir):
+        r = client.post("/unblock", json={"task_id": "t1"}, headers=AUTH)
+        assert r.status_code == 404
+
+    def test_resume_context_empty_when_not_set(self, client, clean_plans_dir):
+        plan = _sample_plan()
+        plan["tasks"][1]["status"] = "blocked"
+        plan["tasks"][1]["blockers"] = ["reason"]
+        _write_plan(clean_plans_dir, plan)
+        r = client.post("/unblock", json={"task_id": "t2"}, headers=AUTH)
+        assert r.status_code == 200
+        assert r.json()["resume_context"] == ""
+
+
+class TestBlockWithContext:
+    def test_block_stores_context(self, client, sample_plan):
+        r = client.post(
+            "/block",
+            json={"task_id": "t2", "reason": "Need info", "context": "Did steps 1-3"},
+            headers=AUTH,
+        )
+        assert r.status_code == 200
+        plan = json.loads(sample_plan.read_text())
+        assert plan["tasks"][1]["resume_context"] == "Did steps 1-3"
+
+    def test_block_without_context_stores_empty_string(self, client, sample_plan):
+        r = client.post(
+            "/block",
+            json={"task_id": "t2", "reason": "Need info"},
+            headers=AUTH,
+        )
+        assert r.status_code == 200
+        plan = json.loads(sample_plan.read_text())
+        assert plan["tasks"][1]["resume_context"] == ""
+
+
 # --- POST /plan ---
 
 

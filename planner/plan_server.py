@@ -83,6 +83,11 @@ class CompleteRequest(BaseModel):
 class BlockRequest(BaseModel):
     task_id: str
     reason: str
+    context: Optional[str] = None
+
+
+class UnblockRequest(BaseModel):
+    task_id: str
 
 
 class TaskUpdateRequest(BaseModel):
@@ -256,9 +261,52 @@ async def block_task(req: BlockRequest, token: str = Depends(verify_token)):
 
     current["status"] = "blocked"
     current["blockers"] = [req.reason]
+    current["resume_context"] = req.context or ""
     _save_plan(plan_path, plan)
 
     return {"blocked": req.task_id, "reason": req.reason}
+
+
+@app.post("/unblock")
+async def unblock_task(req: UnblockRequest, token: str = Depends(verify_token)):
+    plan_path = _current_plan_path()
+    if not plan_path:
+        raise HTTPException(status_code=404, detail="No active plan found")
+
+    plan = _load_plan(plan_path)
+
+    # Reject if another task is already current
+    current = _get_current_task(plan)
+    if current:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Task {current['id']} is already current; complete or block it first",
+        )
+
+    # Find the blocked task
+    target = None
+    for task in plan["tasks"]:
+        if task["id"] == req.task_id:
+            target = task
+            break
+
+    if not target:
+        raise HTTPException(status_code=404, detail=f"Task {req.task_id} not found")
+    if target["status"] != "blocked":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Task {req.task_id} is not blocked (status: {target['status']})",
+        )
+
+    target["status"] = "current"
+    _save_plan(plan_path, plan)
+
+    return {
+        "unblocked": req.task_id,
+        "task": _task_response(target),
+        "blockers": target.get("blockers", []),
+        "resume_context": target.get("resume_context", ""),
+    }
 
 
 @app.post("/plan", status_code=201)

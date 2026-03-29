@@ -270,6 +270,17 @@ class TestComplete:
         # t3 is blocked, no pending tasks to advance
         assert "completed" in r.json().get("message", "").lower() or "next" not in r.json()
 
+    def test_complete_clears_resume_context_and_blockers(self, client, clean_plans_dir):
+        plan = _sample_plan()
+        plan["tasks"][1]["resume_context"] = "Did steps 1-3"
+        plan["tasks"][1]["blockers"] = ["Was blocked by X"]
+        path = _write_plan(clean_plans_dir, plan)
+        r = client.post("/complete", json={"task_id": "t2"}, headers=AUTH)
+        assert r.status_code == 200
+        saved = json.loads(path.read_text())
+        assert "resume_context" not in saved["tasks"][1]
+        assert "blockers" not in saved["tasks"][1]
+
 
 # --- POST /block ---
 

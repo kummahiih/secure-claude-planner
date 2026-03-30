@@ -636,3 +636,112 @@ class TestIsolation:
              patch("os.walk", return_value=[("/app", [], [".secrets.env"])]):
             with pytest.raises(SystemExit):
                 verify_isolation()
+
+
+# --- Field-length validation tests ---
+
+
+class TestFieldLengthValidation:
+    """Tests for maximum field-length enforcement on /plan, /task, and /block endpoints."""
+
+    def _base_task(self, **overrides):
+        t = {"name": "Task", "files": ["a.py"], "action": "Do it", "verify": "Check", "done": "Done"}
+        t.update(overrides)
+        return t
+
+    def _post_plan(self, client, goal="Goal", tasks=None):
+        if tasks is None:
+            tasks = [self._base_task()]
+        return client.post("/plan", json={"goal": goal, "tasks": tasks}, headers=AUTH)
+
+    # /plan endpoint
+
+    def test_goal_too_long_returns_400(self, client, clean_plans_dir):
+        from plan_server import MAX_GOAL_LENGTH
+        r = self._post_plan(client, goal="x" * (MAX_GOAL_LENGTH + 1))
+        assert r.status_code == 400
+        assert "goal" in r.json()["detail"]
+
+    def test_task_name_too_long_returns_400(self, client, clean_plans_dir):
+        from plan_server import MAX_NAME_LENGTH
+        r = self._post_plan(client, tasks=[self._base_task(name="x" * (MAX_NAME_LENGTH + 1))])
+        assert r.status_code == 400
+        assert "name" in r.json()["detail"]
+
+    def test_task_action_too_long_returns_400(self, client, clean_plans_dir):
+        from plan_server import MAX_ACTION_LENGTH
+        r = self._post_plan(client, tasks=[self._base_task(action="x" * (MAX_ACTION_LENGTH + 1))])
+        assert r.status_code == 400
+        assert "action" in r.json()["detail"]
+
+    def test_task_verify_too_long_returns_400(self, client, clean_plans_dir):
+        from plan_server import MAX_VERIFY_LENGTH
+        r = self._post_plan(client, tasks=[self._base_task(verify="x" * (MAX_VERIFY_LENGTH + 1))])
+        assert r.status_code == 400
+        assert "verify" in r.json()["detail"]
+
+    def test_task_done_too_long_returns_400(self, client, clean_plans_dir):
+        from plan_server import MAX_DONE_LENGTH
+        r = self._post_plan(client, tasks=[self._base_task(done="x" * (MAX_DONE_LENGTH + 1))])
+        assert r.status_code == 400
+        assert "done" in r.json()["detail"]
+
+    def test_file_path_too_long_returns_400(self, client, clean_plans_dir):
+        from plan_server import MAX_FILE_PATH_LENGTH
+        r = self._post_plan(client, tasks=[self._base_task(files=["x" * (MAX_FILE_PATH_LENGTH + 1)])])
+        assert r.status_code == 400
+        assert "files" in r.json()["detail"]
+
+    def test_too_many_files_per_task_returns_400(self, client, clean_plans_dir):
+        from plan_server import MAX_FILES_PER_TASK
+        r = self._post_plan(client, tasks=[self._base_task(files=["f.py"] * (MAX_FILES_PER_TASK + 1))])
+        assert r.status_code == 400
+        assert "files" in r.json()["detail"]
+
+    def test_at_limit_succeeds(self, client, clean_plans_dir):
+        from plan_server import MAX_GOAL_LENGTH, MAX_NAME_LENGTH, MAX_ACTION_LENGTH, MAX_VERIFY_LENGTH, MAX_DONE_LENGTH
+        r = self._post_plan(
+            client,
+            goal="g" * MAX_GOAL_LENGTH,
+            tasks=[self._base_task(
+                name="n" * MAX_NAME_LENGTH,
+                action="a" * MAX_ACTION_LENGTH,
+                verify="v" * MAX_VERIFY_LENGTH,
+                done="d" * MAX_DONE_LENGTH,
+            )],
+        )
+        assert r.status_code == 201
+
+    # /task (PATCH) endpoint
+
+    def test_update_task_value_too_long_returns_400(self, client, sample_plan):
+        from plan_server import MAX_ACTION_LENGTH
+        r = client.patch(
+            "/task",
+            json={"task_id": "t2", "field": "action", "value": "x" * (MAX_ACTION_LENGTH + 1)},
+            headers=AUTH,
+        )
+        assert r.status_code == 400
+        assert "action" in r.json()["detail"]
+
+    # /block endpoint
+
+    def test_block_reason_too_long_returns_400(self, client, sample_plan):
+        from plan_server import MAX_REASON_LENGTH
+        r = client.post(
+            "/block",
+            json={"task_id": "t2", "reason": "x" * (MAX_REASON_LENGTH + 1)},
+            headers=AUTH,
+        )
+        assert r.status_code == 400
+        assert "reason" in r.json()["detail"]
+
+    def test_block_context_too_long_returns_400(self, client, sample_plan):
+        from plan_server import MAX_CONTEXT_LENGTH
+        r = client.post(
+            "/block",
+            json={"task_id": "t2", "reason": "blocked", "context": "x" * (MAX_CONTEXT_LENGTH + 1)},
+            headers=AUTH,
+        )
+        assert r.status_code == 400
+        assert "context" in r.json()["detail"]

@@ -39,6 +39,26 @@ logger = logging.getLogger("plan_server")
 PLANS_DIR = os.environ.get("PLANS_DIR", "/plans")
 PLAN_API_TOKEN = os.environ.get("PLAN_API_TOKEN", "") or os.environ.get("MCP_API_TOKEN", "")
 
+# --- Field-length constants ---
+
+MAX_GOAL_LENGTH = 2000
+MAX_NAME_LENGTH = 200
+MAX_ACTION_LENGTH = 5000
+MAX_VERIFY_LENGTH = 2000
+MAX_DONE_LENGTH = 2000
+MAX_FILE_PATH_LENGTH = 500
+MAX_FILES_PER_TASK = 20
+MAX_REASON_LENGTH = 2000
+MAX_CONTEXT_LENGTH = 5000
+MAX_TASK_UPDATE_VALUE_LENGTH = 5000
+
+_FIELD_LIMITS = {
+    "name": MAX_NAME_LENGTH,
+    "action": MAX_ACTION_LENGTH,
+    "verify": MAX_VERIFY_LENGTH,
+    "done": MAX_DONE_LENGTH,
+}
+
 if not PLAN_API_TOKEN:
     logger.error("PLAN_API_TOKEN not set — refusing to start")
     sys.exit(1)
@@ -94,6 +114,49 @@ class TaskUpdateRequest(BaseModel):
     task_id: str
     field: str
     value: str
+
+
+# --- Validation helpers ---
+
+def _validate_field_lengths(req: "PlanCreateRequest") -> None:
+    if len(req.goal) > MAX_GOAL_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'goal' exceeds maximum length of {MAX_GOAL_LENGTH} characters",
+        )
+    for i, task in enumerate(req.tasks, 1):
+        prefix = f"tasks[{i}]"
+        if len(task.name) > MAX_NAME_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{prefix}.name exceeds maximum length of {MAX_NAME_LENGTH} characters",
+            )
+        if len(task.action) > MAX_ACTION_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{prefix}.action exceeds maximum length of {MAX_ACTION_LENGTH} characters",
+            )
+        if len(task.verify) > MAX_VERIFY_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{prefix}.verify exceeds maximum length of {MAX_VERIFY_LENGTH} characters",
+            )
+        if len(task.done) > MAX_DONE_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{prefix}.done exceeds maximum length of {MAX_DONE_LENGTH} characters",
+            )
+        if len(task.files) > MAX_FILES_PER_TASK:
+            raise HTTPException(
+                status_code=400,
+                detail=f"{prefix}.files exceeds maximum of {MAX_FILES_PER_TASK} entries",
+            )
+        for j, fp in enumerate(task.files):
+            if len(fp) > MAX_FILE_PATH_LENGTH:
+                raise HTTPException(
+                    status_code=400,
+                    detail=f"{prefix}.files[{j}] exceeds maximum path length of {MAX_FILE_PATH_LENGTH} characters",
+                )
 
 
 # --- Plan file helpers ---
@@ -246,6 +309,16 @@ async def complete_task(req: CompleteRequest, token: str = Depends(verify_token)
 
 @app.post("/block")
 async def block_task(req: BlockRequest, token: str = Depends(verify_token)):
+    if len(req.reason) > MAX_REASON_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'reason' exceeds maximum length of {MAX_REASON_LENGTH} characters",
+        )
+    if req.context and len(req.context) > MAX_CONTEXT_LENGTH:
+        raise HTTPException(
+            status_code=400,
+            detail=f"'context' exceeds maximum length of {MAX_CONTEXT_LENGTH} characters",
+        )
     plan_path = _current_plan_path()
     if not plan_path:
         raise HTTPException(status_code=404, detail="No active plan found")
@@ -317,6 +390,7 @@ async def create_plan(req: PlanCreateRequest, token: str = Depends(verify_token)
         raise HTTPException(status_code=400, detail="Plan must have at least one task")
     if len(req.tasks) > 10:
         raise HTTPException(status_code=400, detail="Plan must have at most 10 tasks")
+    _validate_field_lengths(req)
 
     plan_id = f"plan-{datetime.now(timezone.utc).strftime('%Y%m%d-%H%M%S')}"
     filename = _plan_filename(plan_id)
@@ -361,6 +435,21 @@ async def update_task(req: TaskUpdateRequest, token: str = Depends(verify_token)
             status_code=400,
             detail=f"Cannot update field '{req.field}'. Allowed: {sorted(UPDATABLE_FIELDS)}",
         )
+
+    # Validate value length per field
+    if req.field == "files":
+        if len(req.value) > MAX_TASK_UPDATE_VALUE_LENGTH:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'value' exceeds maximum length of {MAX_TASK_UPDATE_VALUE_LENGTH} characters",
+            )
+    else:
+        limit = _FIELD_LIMITS.get(req.field, MAX_TASK_UPDATE_VALUE_LENGTH)
+        if len(req.value) > limit:
+            raise HTTPException(
+                status_code=400,
+                detail=f"'value' for field '{req.field}' exceeds maximum length of {limit} characters",
+            )
 
     plan_path = _current_plan_path()
     if not plan_path:
